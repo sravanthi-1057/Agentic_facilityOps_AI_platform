@@ -43,7 +43,10 @@ class HealthHistoryPointSchema(BaseModel):
 
 class MaintenanceAlertSchema(BaseModel):
     alert_id: int
+    id: Optional[int] = None
     asset_id: str
+    asset_name: Optional[str] = None
+    asset_type: Optional[str] = None
     facility_id: str
     floor: str
     title: str
@@ -57,7 +60,12 @@ class MaintenanceAlertSchema(BaseModel):
 
 class MaintenanceScheduleSchema(BaseModel):
     schedule_id: int
+    id: Optional[int] = None
+    work_order_id: Optional[str] = None
     asset_id: str
+    asset_name: Optional[str] = None
+    facility_id: Optional[str] = None
+    floor: Optional[str] = None
     title: str
     description: str
     scheduled_date: str
@@ -91,7 +99,12 @@ class CompleteScheduleRequest(BaseModel):
 
 class MaintenancePredictionSchema(BaseModel):
     prediction_id: int
+    id: Optional[int] = None
     asset_id: str
+    asset_name: Optional[str] = None
+    asset_type: Optional[str] = None
+    facility_id: Optional[str] = None
+    floor: Optional[str] = None
     predicted_at: str
     health_score: float
     failure_risk_pct: float
@@ -157,5 +170,7 @@ class MaintenanceAgentRunResponse(BaseModel):
     steps: List[MaintenanceAgentStepLog]
     assets_analyzed: int
     alerts_generated: int
+    active_alerts_count: Optional[int] = 0
     recommendations_generated: int
+    predictions_count: Optional[int] = 0
     summary_message: str

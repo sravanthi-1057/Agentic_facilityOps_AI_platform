@@ -288,7 +288,10 @@ class MaintenanceAlert(Base):
     def to_dict(self):
         return {
             "alert_id": self.alert_id,
+            "id": self.alert_id,
             "asset_id": self.asset_id,
+            "asset_name": self.asset.asset_name if self.asset else self.asset_id,
+            "asset_type": self.asset.asset_type if self.asset else "Equipment",
             "facility_id": self.facility_id,
             "floor": self.floor,
             "title": self.title,
@@ -296,7 +299,7 @@ class MaintenanceAlert(Base):
             "severity": self.severity,
             "sensor_readings": self.sensor_readings,
             "recommended_action": self.recommended_action,
-            "status": self.status,
+            "status": (self.status or "NEW").upper(),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
         }
@@ -322,14 +325,19 @@ class MaintenanceSchedule(Base):
 
     def to_dict(self):
         return {
+            "id": self.schedule_id,
             "schedule_id": self.schedule_id,
+            "work_order_id": f"WO-{self.schedule_id:04d}",
             "asset_id": self.asset_id,
+            "asset_name": self.asset.asset_name if self.asset else self.asset_id,
+            "facility_id": self.asset.facility_id if self.asset else "FAC-001",
+            "floor": self.asset.floor if self.asset else "Floor 1",
             "title": self.title,
             "description": self.description,
             "scheduled_date": self.scheduled_date.isoformat() if self.scheduled_date else None,
             "priority": self.priority,
             "assigned_technician": self.assigned_technician,
-            "status": self.status,
+            "status": (self.status or "SCHEDULED").upper(),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "notes": self.notes,
@@ -356,7 +364,12 @@ class MaintenancePrediction(Base):
     def to_dict(self):
         return {
             "prediction_id": self.prediction_id,
+            "id": self.prediction_id,
             "asset_id": self.asset_id,
+            "asset_name": self.asset.asset_name if self.asset else self.asset_id,
+            "asset_type": self.asset.asset_type if self.asset else "Equipment",
+            "facility_id": self.asset.facility_id if self.asset else "FAC-001",
+            "floor": self.asset.floor if self.asset else "Floor 1",
             "predicted_at": self.predicted_at.isoformat() if self.predicted_at else None,
             "health_score": round(self.health_score, 1),
             "failure_risk_pct": round(self.failure_risk_pct, 1),

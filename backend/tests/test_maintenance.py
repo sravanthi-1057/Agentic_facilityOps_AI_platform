@@ -2,7 +2,7 @@ import pytest
 import datetime
 from fastapi.testclient import TestClient
 from app.main import app
-from app.database import get_db_session, Asset, MaintenanceAlert, MaintenanceSchedule
+from app.database import get_db_session, Asset, MaintenanceAlert, MaintenanceSchedule, MaintenancePrediction
 from app.services.asset_simulator import asset_simulator
 
 client = TestClient(app)
@@ -69,7 +69,6 @@ def test_alert_lifecycle_acknowledge_and_resolve():
     db = get_db_session()
     alert = db.query(MaintenanceAlert).filter(MaintenanceAlert.status == "NEW").first()
     if not alert:
-        # Create an alert to test lifecycle
         alert = MaintenanceAlert(
             asset_id="AST-CHL-001",
             facility_id="FAC-001",
@@ -97,6 +96,26 @@ def test_alert_lifecycle_acknowledge_and_resolve():
     assert res_res.json()["status"] == "RESOLVED"
     assert res_res.json()["resolved_at"] is not None
 
+def test_alerts_endpoint_data_and_counts():
+    res = client.get("/api/maintenance/alerts")
+    assert res.status_code == 200
+    alerts = res.json()
+    assert len(alerts) > 0
+    first = alerts[0]
+    assert "alert_id" in first
+    assert "asset_id" in first
+    assert "asset_name" in first
+    assert "severity" in first
+    assert "status" in first
+    assert "title" in first
+    assert "description" in first
+
+    # Severity filter
+    res_crit = client.get("/api/maintenance/alerts?severity=critical")
+    assert res_crit.status_code == 200
+    for a in res_crit.json():
+        assert a["severity"].lower() == "critical"
+
 def test_schedules_crud_and_completion():
     # Create schedule
     new_task = {
@@ -113,37 +132,60 @@ def test_schedules_crud_and_completion():
     sched = res_create.json()
     sched_id = sched["schedule_id"]
     assert sched["status"] == "SCHEDULED"
+    assert "work_order_id" in sched
+    assert sched["work_order_id"].startswith("WO-")
 
     # Update schedule
     res_update = client.put(f"/api/maintenance/schedules/{sched_id}", json={"priority": "Critical"})
     assert res_update.status_code == 200
     assert res_update.json()["priority"] == "Critical"
 
-    # Complete schedule
+    # Complete schedule and verify asset health restoration
     res_comp = client.post(f"/api/maintenance/schedules/{sched_id}/complete", json={"notes": "All bearings greased."})
     assert res_comp.status_code == 200
     assert res_comp.json()["status"] == "COMPLETED"
     assert res_comp.json()["completed_at"] is not None
 
-def test_predictions_endpoint():
+    # Verify asset health was updated
+    res_asset = client.get("/api/maintenance/assets/AST-AHU-001")
+    assert res_asset.status_code == 200
+    assert res_asset.json()["health_score"] >= 80
+
+def test_predictions_endpoint_and_attributes():
     res = client.get("/api/maintenance/predictions")
     assert res.status_code == 200
     preds = res.json()
     assert isinstance(preds, list)
     assert len(preds) > 0
-    assert "failure_risk_pct" in preds[0]
-    assert "estimated_days_to_failure" in preds[0]
+    p = preds[0]
+    assert "asset_id" in p
+    assert "asset_name" in p
+    assert "health_score" in p
+    assert "failure_risk_pct" in p
+    assert "risk_level" in p
+    assert "estimated_days_to_failure" in p
+    assert "recommendation" in p
+    assert "reason" in p
 
-def test_langgraph_maintenance_agent_execution():
+    # Filter by risk level
+    res_crit = client.get("/api/maintenance/predictions?risk_level=critical")
+    assert res_crit.status_code == 200
+    crit_preds = res_crit.json()
+    assert all(cp["risk_level"].lower() == "critical" for cp in crit_preds)
+
+def test_langgraph_maintenance_agent_execution_and_persistence():
+    # 1. Run agent
     res = client.post("/api/maintenance/analyze?facility_id=all")
     assert res.status_code == 200
     data = res.json()
     assert data["status"] == "COMPLETED"
     assert len(data["steps"]) == 7  # 7-node workflow
     assert data["assets_analyzed"] >= 10
+    assert data["predictions_count"] >= 10
     assert "execution_time_ms" in data
+    assert "summary_message" in data
 
-    # Verify 7 nodes in sequence
+    # 2. Verify all 7 nodes executed in order
     step_nodes = [s["node"] for s in data["steps"]]
     assert "Asset Telemetry Validation Node" in step_nodes
     assert "Equipment Condition Analysis Node" in step_nodes
@@ -152,3 +194,15 @@ def test_langgraph_maintenance_agent_execution():
     assert "Maintenance Recommendation Node" in step_nodes
     assert "Alert Generation Node" in step_nodes
     assert "Database Persistence Node" in step_nodes
+
+    # 3. Verify predictions are retrievable via API
+    res_preds = client.get("/api/maintenance/predictions")
+    assert res_preds.status_code == 200
+    assert len(res_preds.json()) >= 10
+
+    # 4. Verify re-running the agent does not create duplicate alerts
+    res_again = client.post("/api/maintenance/analyze?facility_id=all")
+    assert res_again.status_code == 200
+    data_again = res_again.json()
+    assert data_again["status"] == "COMPLETED"
+    assert data_again["alerts_generated"] == 0  # No duplicate alerts created

@@ -102,15 +102,29 @@ export const api = {
   // MILESTONE 2: PREDICTIVE MAINTENANCE APIS
   // ==========================================
 
-  // Maintenance Fleet KPIs
-  getMaintenanceKpis: async (facilityId = 'all') => {
-    const res = await axios.get(`${API_BASE}/maintenance/kpis`, {
-      params: { facility_id: facilityId }
-    });
+  // Maintenance Fleet KPIs (supports string or { facility_id })
+  getMaintenanceKPIs: async (facilityIdOrParams = 'all') => {
+    const params = typeof facilityIdOrParams === 'object' && facilityIdOrParams !== null
+      ? facilityIdOrParams
+      : { facility_id: facilityIdOrParams || 'all' };
+    const res = await axios.get(`${API_BASE}/maintenance/kpis`, { params });
+    return res.data;
+  },
+
+  getMaintenanceKpis: async (facilityIdOrParams = 'all') => {
+    const params = typeof facilityIdOrParams === 'object' && facilityIdOrParams !== null
+      ? facilityIdOrParams
+      : { facility_id: facilityIdOrParams || 'all' };
+    const res = await axios.get(`${API_BASE}/maintenance/kpis`, { params });
     return res.data;
   },
 
   // Assets List with Filters
+  getMaintenanceAssets: async (params = {}) => {
+    const res = await axios.get(`${API_BASE}/maintenance/assets`, { params });
+    return res.data;
+  },
+
   getAssets: async (params = {}) => {
     const res = await axios.get(`${API_BASE}/maintenance/assets`, { params });
     return res.data;
@@ -130,11 +144,15 @@ export const api = {
     return res.data;
   },
 
-  // Predictive Maintenance Predictions
-  getMaintenancePredictions: async (facilityId = 'all', riskLevel = 'all', limit = 50) => {
-    const res = await axios.get(`${API_BASE}/maintenance/predictions`, {
-      params: { facility_id: facilityId, risk_level: riskLevel, limit }
-    });
+  // Predictive Maintenance Predictions (supports string or { facility_id, risk_level })
+  getMaintenancePredictions: async (facilityIdOrParams = 'all', riskLevel = 'all', limit = 50) => {
+    let params = {};
+    if (typeof facilityIdOrParams === 'object' && facilityIdOrParams !== null) {
+      params = { facility_id: 'all', risk_level: 'all', limit: 50, ...facilityIdOrParams };
+    } else {
+      params = { facility_id: facilityIdOrParams || 'all', risk_level: riskLevel || 'all', limit };
+    }
+    const res = await axios.get(`${API_BASE}/maintenance/predictions`, { params });
     return res.data;
   },
 
@@ -150,8 +168,18 @@ export const api = {
     return res.data;
   },
 
+  acknowledgeMaintenanceAlert: async (alertId) => {
+    const res = await axios.post(`${API_BASE}/maintenance/alerts/${alertId}/acknowledge`);
+    return res.data;
+  },
+
   // Resolve Alert
   resolveAlert: async (alertId) => {
+    const res = await axios.post(`${API_BASE}/maintenance/alerts/${alertId}/resolve`);
+    return res.data;
+  },
+
+  resolveMaintenanceAlert: async (alertId) => {
     const res = await axios.post(`${API_BASE}/maintenance/alerts/${alertId}/resolve`);
     return res.data;
   },
@@ -186,10 +214,18 @@ export const api = {
     return res.data;
   },
 
+  refreshAssetSensors: async () => {
+    const res = await axios.post(`${API_BASE}/maintenance/telemetry/refresh`);
+    return res.data;
+  },
+
   // Execute LangGraph Maintenance Agent
-  triggerMaintenanceAgent: async (facilityId = 'all') => {
+  triggerMaintenanceAgent: async (facilityIdOrParams = 'all') => {
+    const facility_id = typeof facilityIdOrParams === 'object' && facilityIdOrParams !== null
+      ? (facilityIdOrParams.facility_id || 'all')
+      : (facilityIdOrParams || 'all');
     const res = await axios.post(`${API_BASE}/maintenance/analyze`, null, {
-      params: { facility_id: facilityId }
+      params: { facility_id }
     });
     return res.data;
   },

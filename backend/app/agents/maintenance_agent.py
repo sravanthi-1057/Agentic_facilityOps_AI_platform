@@ -165,6 +165,7 @@ def failure_risk_prediction_node(state: MaintenanceAgentState) -> Dict[str, Any]
         predictions.append({
             "asset_id": a["asset_id"],
             "asset_name": a["asset_name"],
+            "health_score": a.get("health_score", 100.0),
             "failure_risk_pct": risk_pct,
             "predicted_failure_days": days,
             "risk_level": priority,
@@ -270,12 +271,18 @@ def alert_generation_node(state: MaintenanceAgentState) -> Dict[str, Any]:
                     "recommended_action": r["suggested_action"]
                 })
 
+    existing_open_count = (
+        db.query(MaintenanceAlert)
+        .filter(MaintenanceAlert.status.in_(["NEW", "ACKNOWLEDGED"]))
+        .count()
+    )
+
     step_log = {
         "node": "Alert Generation Node",
         "status": "SUCCESS",
         "duration_ms": round((time.time() - t0) * 1000, 2),
-        "summary": f"Evaluated alarm triggers: generated {len(new_alerts)} new alerts without duplicate spam.",
-        "metadata": {"new_alerts_count": len(new_alerts)}
+        "summary": f"Alarm evaluator: {len(new_alerts)} new alerts created, {existing_open_count + len(new_alerts)} active incidents currently monitored.",
+        "metadata": {"new_alerts_count": len(new_alerts), "active_open_count": existing_open_count + len(new_alerts)}
     }
 
     return {
@@ -318,7 +325,7 @@ def save_maintenance_results_node(state: MaintenanceAgentState) -> Dict[str, Any
         pred_rec = MaintenancePrediction(
             asset_id=p["asset_id"],
             predicted_at=now,
-            health_score=p.get("health_score", 85.0),
+            health_score=p.get("health_score", 100.0),
             failure_risk_pct=p["failure_risk_pct"],
             risk_level=p["risk_level"],
             estimated_days_to_failure=p["predicted_failure_days"],
@@ -348,7 +355,7 @@ def save_maintenance_results_node(state: MaintenanceAgentState) -> Dict[str, Any
         "node": "Database Persistence Node",
         "status": "SUCCESS",
         "duration_ms": round((time.time() - t0) * 1000, 2),
-        "summary": f"Persisted {saved_alerts_count} alerts, updated asset records, and logged run {run_id} to DocStore."
+        "summary": f"Persisted {len(predictions)} failure predictions, {saved_alerts_count} new alerts, and logged run {run_id} to DocStore."
     }
 
     return {
@@ -408,6 +415,16 @@ def execute_maintenance_agent(db: Session, facility_id: str = "all") -> Dict[str
     final_state = maintenance_agent_graph.invoke(initial_state)
     elapsed_ms = round((time.time() - t_start) * 1000, 2)
 
+    active_alerts_count = (
+        db.query(MaintenanceAlert)
+        .filter(MaintenanceAlert.status.in_(["NEW", "ACKNOWLEDGED"]))
+        .count()
+    )
+    predictions_count = len(final_state.get("failure_predictions", []))
+    new_alerts_count = len(final_state.get("generated_alerts", []))
+    recs_count = len(final_state.get("recommendations", []))
+    assets_count = len(final_state.get("assets_data", []))
+
     return {
         "run_id": run_id,
         "facility_id": facility_id,
@@ -415,8 +432,10 @@ def execute_maintenance_agent(db: Session, facility_id: str = "all") -> Dict[str
         "timestamp": datetime.datetime.utcnow().isoformat(),
         "execution_time_ms": elapsed_ms,
         "steps": final_state.get("steps", []),
-        "assets_analyzed": len(final_state.get("assets_data", [])),
-        "alerts_generated": len(final_state.get("generated_alerts", [])),
-        "recommendations_generated": len(final_state.get("recommendations", [])),
-        "summary_message": f"Successfully completed LangGraph Maintenance Agent workflow across {len(final_state.get('assets_data', []))} assets in {elapsed_ms} ms."
+        "assets_analyzed": assets_count,
+        "alerts_generated": new_alerts_count,
+        "active_alerts_count": active_alerts_count,
+        "recommendations_generated": recs_count,
+        "predictions_count": predictions_count,
+        "summary_message": f"Successfully executed Maintenance Agent across {assets_count} assets: {predictions_count} predictions updated, {active_alerts_count} active alerts monitored ({new_alerts_count} new) in {elapsed_ms} ms."
     }

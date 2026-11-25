@@ -115,23 +115,35 @@ def get_maintenance_predictions(
     db: Session = Depends(get_db)
 ):
     """Lists predictive failure risk estimates, remaining useful life (RUL), and recommended actions."""
+    # Ensure assets are seeded
+    if db.query(Asset).count() == 0:
+        asset_simulator.seed_initial_assets(db)
+
     query = (
-        db.query(MaintenancePrediction, Asset.facility_id)
+        db.query(MaintenancePrediction)
         .join(Asset, MaintenancePrediction.asset_id == Asset.asset_id)
-        .order_by(desc(MaintenancePrediction.failure_risk_pct))
+        .order_by(desc(MaintenancePrediction.predicted_at), desc(MaintenancePrediction.prediction_id))
     )
 
     if facility_id and facility_id.lower() != "all":
         query = query.filter(Asset.facility_id == facility_id)
 
     if risk_level and risk_level.lower() != "all":
-        query = query.filter(MaintenancePrediction.risk_level == risk_level.capitalize())
+        query = query.filter(MaintenancePrediction.risk_level.ilike(risk_level))
 
-    preds = query.limit(limit).all()
-    results = []
-    for pred, _ in preds:
-        results.append(pred.to_dict())
-    return results
+    preds = query.all()
+    seen_assets = set()
+    latest_predictions = []
+    for pred in preds:
+        if pred.asset_id not in seen_assets:
+            seen_assets.add(pred.asset_id)
+            latest_predictions.append(pred.to_dict())
+            if len(latest_predictions) >= limit:
+                break
+
+    # Sort so that highest failure risks appear at the top
+    latest_predictions.sort(key=lambda x: x["failure_risk_pct"], reverse=True)
+    return latest_predictions
 
 @router.get("/alerts", response_model=List[MaintenanceAlertSchema])
 def list_maintenance_alerts(
@@ -143,16 +155,20 @@ def list_maintenance_alerts(
     db: Session = Depends(get_db)
 ):
     """Lists maintenance alerts with filters for severity, status, and asset."""
+    # Ensure assets and alerts are seeded
+    if db.query(Asset).count() == 0:
+        asset_simulator.seed_initial_assets(db)
+
     query = db.query(MaintenanceAlert).order_by(desc(MaintenanceAlert.created_at))
 
     if facility_id and facility_id.lower() != "all":
         query = query.filter(MaintenanceAlert.facility_id == facility_id)
 
     if severity and severity.lower() != "all":
-        query = query.filter(MaintenanceAlert.severity == severity.capitalize())
+        query = query.filter(MaintenanceAlert.severity.ilike(severity))
 
     if status and status.lower() != "all":
-        query = query.filter(MaintenanceAlert.status == status.upper())
+        query = query.filter(MaintenanceAlert.status.ilike(status))
 
     if asset_id and asset_id.lower() != "all":
         query = query.filter(MaintenanceAlert.asset_id == asset_id)
@@ -184,6 +200,7 @@ def resolve_maintenance_alert(
 
 @router.get("/schedules", response_model=List[MaintenanceScheduleSchema])
 def list_maintenance_schedules(
+    facility_id: Optional[str] = Query("all"),
     asset_id: Optional[str] = Query("all"),
     status: Optional[str] = Query("all"),
     priority: Optional[str] = Query("all"),
@@ -191,16 +208,27 @@ def list_maintenance_schedules(
     db: Session = Depends(get_db)
 ):
     """Lists upcoming, overdue, and completed maintenance work orders."""
-    query = db.query(MaintenanceSchedule).order_by(MaintenanceSchedule.scheduled_date.asc())
+    # Ensure assets are seeded
+    if db.query(Asset).count() == 0:
+        asset_simulator.seed_initial_assets(db)
+
+    query = (
+        db.query(MaintenanceSchedule)
+        .join(Asset, MaintenanceSchedule.asset_id == Asset.asset_id)
+        .order_by(MaintenanceSchedule.scheduled_date.asc())
+    )
+
+    if facility_id and facility_id.lower() != "all":
+        query = query.filter(Asset.facility_id == facility_id)
 
     if asset_id and asset_id.lower() != "all":
         query = query.filter(MaintenanceSchedule.asset_id == asset_id)
 
     if status and status.lower() != "all":
-        query = query.filter(MaintenanceSchedule.status == status.upper())
+        query = query.filter(MaintenanceSchedule.status.ilike(status))
 
     if priority and priority.lower() != "all":
-        query = query.filter(MaintenanceSchedule.priority == priority.capitalize())
+        query = query.filter(MaintenanceSchedule.priority.ilike(priority))
 
     schedules = query.limit(limit).all()
     return [s.to_dict() for s in schedules]

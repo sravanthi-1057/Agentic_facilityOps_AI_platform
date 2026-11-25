@@ -19,20 +19,39 @@ import { api } from '../services/api';
 
 const PRIORITY_STYLES = {
   Critical: 'bg-rose-50 text-rose-700 border-rose-200',
+  CRITICAL: 'bg-rose-50 text-rose-700 border-rose-200',
   High: 'bg-amber-50 text-amber-700 border-amber-200',
+  HIGH: 'bg-amber-50 text-amber-700 border-amber-200',
   Medium: 'bg-sky-50 text-sky-700 border-sky-200',
-  Low: 'bg-slate-100 text-slate-700 border-slate-200'
+  MEDIUM: 'bg-sky-50 text-sky-700 border-sky-200',
+  Low: 'bg-slate-100 text-slate-700 border-slate-200',
+  LOW: 'bg-slate-100 text-slate-700 border-slate-200'
 };
 
 const STATUS_STYLES = {
   Scheduled: 'bg-blue-50 text-blue-700 border-blue-200',
+  SCHEDULED: 'bg-blue-50 text-blue-700 border-blue-200',
   'In Progress': 'bg-amber-50 text-amber-700 border-amber-200',
+  IN_PROGRESS: 'bg-amber-50 text-amber-700 border-amber-200',
+  'IN PROGRESS': 'bg-amber-50 text-amber-700 border-amber-200',
   Completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Overdue: 'bg-rose-50 text-rose-700 border-rose-200'
+  COMPLETED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  Overdue: 'bg-rose-50 text-rose-700 border-rose-200',
+  OVERDUE: 'bg-rose-50 text-rose-700 border-rose-200'
 };
 
+function formatStatus(statusStr) {
+  if (!statusStr) return 'Scheduled';
+  const upper = String(statusStr).toUpperCase().replace(' ', '_');
+  if (upper === 'SCHEDULED') return 'Scheduled';
+  if (upper === 'IN_PROGRESS') return 'In Progress';
+  if (upper === 'COMPLETED') return 'Completed';
+  if (upper === 'OVERDUE') return 'Overdue';
+  return statusStr;
+}
+
 export default function MaintenanceSchedulePage({
-  facilityId = 'FAC-001',
+  facilityId = 'all',
   onSelectAsset,
   onOpenCreateSchedule
 }) {
@@ -53,8 +72,8 @@ export default function MaintenanceSchedulePage({
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getMaintenanceSchedules({ facility_id: facilityId });
-      setSchedules(data);
+      const data = await api.getMaintenanceSchedules({ facility_id: facilityId || 'all' });
+      setSchedules(data || []);
     } catch (err) {
       setError(err.message || 'Failed to load maintenance schedules.');
     } finally {
@@ -68,7 +87,7 @@ export default function MaintenanceSchedulePage({
 
   const handleStartWork = async (scheduleId) => {
     try {
-      await api.updateMaintenanceSchedule(scheduleId, { status: 'In Progress' });
+      await api.updateMaintenanceSchedule(scheduleId, { status: 'IN_PROGRESS' });
       await fetchSchedules();
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to update schedule status.');
@@ -77,15 +96,18 @@ export default function MaintenanceSchedulePage({
 
   const handleOpenComplete = (schedule) => {
     setTargetSchedule(schedule);
-    setCompletionNotes(`Completed routine maintenance and verification. Operational parameters verified within normal ranges.`);
+    setCompletionNotes('Completed routine maintenance and verification. Operational parameters verified within normal ranges.');
     setCompleteModalOpen(true);
   };
 
   const handleConfirmComplete = async () => {
     if (!targetSchedule) return;
+    const scheduleId = targetSchedule.schedule_id || targetSchedule.id;
+    if (!scheduleId) return;
+
     setCompleting(true);
     try {
-      await api.completeMaintenanceSchedule(targetSchedule.id, completionNotes);
+      await api.completeMaintenanceSchedule(scheduleId, completionNotes);
       setCompleteModalOpen(false);
       setTargetSchedule(null);
       await fetchSchedules();
@@ -96,27 +118,35 @@ export default function MaintenanceSchedulePage({
     }
   };
 
+  // Status helper
+  const getStatusUpper = (s) => (s?.status || '').toUpperCase().replace(' ', '_');
+
   // KPI calculations
   const totalCount = schedules.length;
-  const scheduledCount = schedules.filter((s) => s.status === 'Scheduled').length;
-  const inProgressCount = schedules.filter((s) => s.status === 'In Progress').length;
-  const completedCount = schedules.filter((s) => s.status === 'Completed').length;
-  const overdueCount = schedules.filter((s) => s.status === 'Overdue').length;
+  const scheduledCount = schedules.filter((s) => getStatusUpper(s) === 'SCHEDULED').length;
+  const inProgressCount = schedules.filter((s) => getStatusUpper(s) === 'IN_PROGRESS').length;
+  const completedCount = schedules.filter((s) => getStatusUpper(s) === 'COMPLETED').length;
+  const overdueCount = schedules.filter((s) => getStatusUpper(s) === 'OVERDUE').length;
 
   // Filtered schedules
   const filtered = schedules.filter((item) => {
-    if (statusFilter !== 'ALL' && item.status.toUpperCase() !== statusFilter.toUpperCase()) {
-      return false;
+    const itemStatusUpper = getStatusUpper(item);
+    if (statusFilter !== 'ALL') {
+      const filterTarget = statusFilter.toUpperCase().replace(' ', '_');
+      if (itemStatusUpper !== filterTarget) return false;
     }
-    if (priorityFilter !== 'ALL' && item.priority.toUpperCase() !== priorityFilter.toUpperCase()) {
-      return false;
+    if (priorityFilter !== 'ALL') {
+      if ((item.priority || '').toUpperCase() !== priorityFilter.toUpperCase()) {
+        return false;
+      }
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const matchTitle = item.title?.toLowerCase().includes(q);
-      const matchAsset = item.asset_name?.toLowerCase().includes(q) || item.asset_id?.toLowerCase().includes(q);
+      const matchAsset = (item.asset_name || item.asset_id)?.toLowerCase().includes(q);
       const matchTech = item.assigned_technician?.toLowerCase().includes(q);
-      if (!matchTitle && !matchAsset && !matchTech) return false;
+      const matchWo = (item.work_order_id || '')?.toLowerCase().includes(q);
+      if (!matchTitle && !matchAsset && !matchTech && !matchWo) return false;
     }
     return true;
   });
@@ -278,19 +308,22 @@ export default function MaintenanceSchedulePage({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((order) => {
-                  const isCompleted = order.status === 'Completed';
-                  const isScheduled = order.status === 'Scheduled';
-                  const isInProgress = order.status === 'In Progress';
+                  const scheduleId = order.schedule_id || order.id;
+                  const workOrderId = order.work_order_id || `WO-${String(scheduleId || 1).padStart(4, '0')}`;
+                  const statusUpper = getStatusUpper(order);
+                  const isCompleted = statusUpper === 'COMPLETED';
+                  const isScheduled = statusUpper === 'SCHEDULED';
+                  const displayStatus = formatStatus(order.status);
 
                   return (
-                    <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
+                    <tr key={scheduleId} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3.5 px-4">
                         <div className="font-semibold text-slate-800">{order.title}</div>
                         <div className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
                           {order.description || 'Routine preventive maintenance work order.'}
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-1 font-mono">
-                          ID: #{order.id}
+                        <div className="text-[10px] text-indigo-600 mt-1 font-mono font-semibold">
+                          {workOrderId}
                         </div>
                       </td>
 
@@ -304,7 +337,7 @@ export default function MaintenanceSchedulePage({
                               {order.asset_name || order.asset_id}
                             </div>
                             <div className="text-[10px] text-slate-400 font-mono">
-                              {order.asset_id}
+                              {order.asset_id} {order.facility_id ? `• ${order.facility_id}` : ''}
                             </div>
                           </div>
                           <ExternalLink className="w-3 h-3 text-slate-300 group-hover:text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -324,10 +357,10 @@ export default function MaintenanceSchedulePage({
                               : 'Immediate'}
                           </span>
                         </div>
-                        {order.completed_date && (
+                        {order.completed_at && (
                           <div className="text-[10px] text-emerald-600 mt-0.5">
                             Done:{' '}
-                            {new Date(order.completed_date).toLocaleDateString(undefined, {
+                            {new Date(order.completed_at).toLocaleDateString(undefined, {
                               month: 'short',
                               day: 'numeric'
                             })}
@@ -338,7 +371,7 @@ export default function MaintenanceSchedulePage({
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                            PRIORITY_STYLES[order.priority] || 'bg-slate-100 text-slate-700'
+                            PRIORITY_STYLES[order.priority] || 'bg-slate-100 text-slate-700 border-slate-200'
                           }`}
                         >
                           {order.priority}
@@ -362,10 +395,10 @@ export default function MaintenanceSchedulePage({
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                            STATUS_STYLES[order.status] || 'bg-slate-100 text-slate-700'
+                            STATUS_STYLES[order.status] || STATUS_STYLES[displayStatus] || 'bg-slate-100 text-slate-700 border-slate-200'
                           }`}
                         >
-                          {order.status}
+                          {displayStatus}
                         </span>
                       </td>
 
@@ -373,8 +406,8 @@ export default function MaintenanceSchedulePage({
                         <div className="flex items-center justify-end gap-1.5">
                           {isScheduled && (
                             <button
-                              onClick={() => handleStartWork(order.id)}
-                              className="px-2.5 py-1 text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors"
+                              onClick={() => handleStartWork(scheduleId)}
+                              className="px-2.5 py-1 text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer"
                               title="Start work order"
                             >
                               Start Work
@@ -384,7 +417,7 @@ export default function MaintenanceSchedulePage({
                           {!isCompleted && (
                             <button
                               onClick={() => handleOpenComplete(order)}
-                              className="px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1 transition-colors"
+                              className="px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                               title="Mark work order completed"
                             >
                               <Check className="w-3 h-3" />
@@ -416,7 +449,9 @@ export default function MaintenanceSchedulePage({
             <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-sm font-bold">Complete Work Order #{targetSchedule.id}</h3>
+                <h3 className="text-sm font-bold">
+                  Complete Work Order #{targetSchedule.work_order_id || targetSchedule.schedule_id || targetSchedule.id}
+                </h3>
               </div>
               <button
                 onClick={() => setCompleteModalOpen(false)}

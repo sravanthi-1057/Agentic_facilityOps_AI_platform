@@ -406,7 +406,7 @@ export default function App() {
 
               {activeTab === 'maintenance-schedule' && (
                 <MaintenanceSchedulePage
-                  facilityId={selectedFacility === 'all' ? 'FAC-001' : selectedFacility}
+                  facilityId={selectedFacility}
                   onSelectAsset={handleSelectAsset}
                   onOpenCreateSchedule={() => handleOpenCreateSchedule()}
                 />
