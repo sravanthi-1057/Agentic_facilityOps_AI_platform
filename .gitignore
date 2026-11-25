@@ -1,0 +1,25 @@
+# Node / Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.pytest_cache/
+*.sqlite3
+*.db
+
+# Data & Fallbacks (keep sample csv, ignore runtime db files)
+data/facilityops.db
+data/docstore.json
+
+# Environment
+.env
+
+# OS
+.DS_Store
+Thumbs.db
