@@ -41,7 +41,7 @@ export default function KpiCard({ title, value, unit, change, icon: Icon, color 
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</span>
         <div className={`w-9 h-9 rounded-lg ${currentStyle.iconBg} flex items-center justify-center ${currentStyle.text}`}>
-          <Icon className="w-5 h-5" />
+          {Icon && typeof Icon === 'function' ? <Icon className="w-5 h-5" /> : null}
         </div>
       </div>
 

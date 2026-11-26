@@ -13,7 +13,8 @@ import {
   Plus, 
   Sparkles,
   Thermometer,
-  Gauge
+  Gauge,
+  Wrench
 } from 'lucide-react';
 import KpiCard from '../components/KpiCard';
 import {
@@ -46,18 +47,24 @@ export default function AssetMonitoringPage({
   const [sortBy, setSortBy] = useState('health_score');
   const [sortOrder, setSortOrder] = useState('asc'); // asc = lowest health first
 
+  // Safe assets array
+  const assetList = Array.isArray(assets) ? assets : [];
+
   // Extract unique asset types and floors
-  const assetTypes = Array.from(new Set(assets.map(a => a.asset_type))).sort();
-  const floors = Array.from(new Set(assets.map(a => a.floor))).sort();
+  const assetTypes = Array.from(new Set(assetList.map(a => a?.asset_type).filter(Boolean))).sort();
+  const floors = Array.from(new Set(assetList.map(a => a?.floor).filter(Boolean))).sort();
 
   // Filter & Search
-  const filteredAssets = assets
+  const filteredAssets = assetList
     .filter(a => {
-      const q = searchQuery.toLowerCase();
-      const matchesSearch = a.asset_name.toLowerCase().includes(q) || a.asset_id.toLowerCase().includes(q);
+      if (!a) return false;
+      const q = (searchQuery || '').toLowerCase().trim();
+      const name = String(a.asset_name || '').toLowerCase();
+      const id = String(a.asset_id || '').toLowerCase();
+      const matchesSearch = !q || name.includes(q) || id.includes(q);
       const matchesType = selectedType === 'all' || a.asset_type === selectedType;
       const matchesFloor = selectedFloor === 'all' || a.floor === selectedFloor;
-      const matchesStatus = selectedStatus === 'all' || a.operational_status === selectedStatus;
+      const matchesStatus = selectedStatus === 'all' || String(a.operational_status || '').toUpperCase() === selectedStatus.toUpperCase();
       return matchesSearch && matchesType && matchesFloor && matchesStatus;
     })
     .sort((a, b) => {
@@ -66,11 +73,12 @@ export default function AssetMonitoringPage({
       if (typeof valA === 'string') {
         return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
       }
-      return sortOrder === 'asc' ? valA - valB : valB - valA;
+      return sortOrder === 'asc' ? (Number(valA) || 0) - (Number(valB) || 0) : (Number(valB) || 0) - (Number(valA) || 0);
     });
 
   const getStatusBadge = (status) => {
-    switch (status) {
+    const s = String(status || '').toUpperCase();
+    switch (s) {
       case 'CRITICAL':
         return 'bg-rose-100 text-rose-800 border-rose-200';
       case 'DEGRADED':
@@ -83,18 +91,19 @@ export default function AssetMonitoringPage({
   };
 
   const getHealthPill = (score) => {
+    const num = Math.round(Number(score) || 0);
     let color = 'bg-emerald-500';
     let text = 'text-emerald-700';
     let bg = 'bg-emerald-50';
-    if (score < 40) {
+    if (num < 40) {
       color = 'bg-rose-500';
       text = 'text-rose-700';
       bg = 'bg-rose-50';
-    } else if (score < 60) {
+    } else if (num < 60) {
       color = 'bg-orange-500';
       text = 'text-orange-700';
       bg = 'bg-orange-50';
-    } else if (score < 75) {
+    } else if (num < 75) {
       color = 'bg-amber-500';
       text = 'text-amber-700';
       bg = 'bg-amber-50';
@@ -103,10 +112,10 @@ export default function AssetMonitoringPage({
     return (
       <div className="flex items-center gap-2">
         <div className="w-16 bg-slate-200 h-2 rounded-full overflow-hidden">
-          <div className={`h-full ${color}`} style={{ width: `${score}%` }} />
+          <div className={`h-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, num))}%` }} />
         </div>
         <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${bg} ${text}`}>
-          {score}
+          {num}
         </span>
       </div>
     );
@@ -130,14 +139,14 @@ export default function AssetMonitoringPage({
           <button
             onClick={onRefreshTelemetry}
             disabled={isRefreshingTelemetry}
-            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-white/20 transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-white/20 transition-all disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingTelemetry ? 'animate-spin' : ''}`} />
-            <span>Simulate Sensor Stream</span>
+            <span>{isRefreshingTelemetry ? 'Streaming...' : 'Simulate Sensor Stream'}</span>
           </button>
           <button
             onClick={onRunMaintenanceAgent}
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-md transition-all"
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-md transition-all cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>Run Maintenance Agent</span>
@@ -149,35 +158,35 @@ export default function AssetMonitoringPage({
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         <KpiCard
           title="Monitored Assets"
-          value={kpis?.total_assets_count || 0}
+          value={kpis?.total_assets_count || assetList.length}
           icon={Cpu}
           color="blue"
           subtext="Active Infrastructure"
         />
         <KpiCard
           title="Healthy Assets"
-          value={kpis?.healthy_assets_count || 0}
+          value={kpis?.healthy_assets_count ?? assetList.filter(a => a.health_score >= 75).length}
           icon={CheckCircle2}
           color="emerald"
           subtext="Score ≥ 75"
         />
         <KpiCard
           title="Warning Assets"
-          value={kpis?.warning_assets_count || 0}
+          value={kpis?.warning_assets_count ?? assetList.filter(a => a.health_score >= 60 && a.health_score < 75).length}
           icon={AlertTriangle}
           color="amber"
           subtext="Score 60–74"
         />
         <KpiCard
           title="Critical Assets"
-          value={kpis?.critical_assets_count || 0}
+          value={kpis?.critical_assets_count ?? assetList.filter(a => a.health_score < 40).length}
           icon={ShieldAlert}
           color="rose"
           subtext="Score < 40"
         />
         <KpiCard
           title="Predicted Failures"
-          value={kpis?.predicted_failures_count || 0}
+          value={kpis?.predicted_failures_count ?? assetList.filter(a => a.failure_risk_pct >= 50).length}
           icon={Activity}
           color="rose"
           subtext="Risk ≥ 50%"
@@ -208,7 +217,7 @@ export default function AssetMonitoringPage({
               <p className="text-xs text-slate-400">Equipment counts segmented by health rating categories</p>
             </div>
             <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md">
-              Fleet Average: {kpis?.avg_fleet_health_score || 0}/100
+              Fleet Average: {kpis?.avg_fleet_health_score || (assetList.length ? (assetList.reduce((acc, a) => acc + (a.health_score || 0), 0) / assetList.length).toFixed(1) : 0)}/100
             </span>
           </div>
           <div className="h-56 w-full">
@@ -222,7 +231,7 @@ export default function AssetMonitoringPage({
                 />
                 <Bar dataKey="count" name="Assets" radius={[4, 4, 0, 0]}>
                   {(kpis?.health_distribution || []).map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                    <Cell key={`cell-${index}`} fill={entry.color || '#10b981'} />
                   ))}
                 </Bar>
               </BarChart>
@@ -269,7 +278,7 @@ export default function AssetMonitoringPage({
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
             >
               <option value="all">All Types</option>
               {assetTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -279,7 +288,7 @@ export default function AssetMonitoringPage({
             <select
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
-              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
             >
               <option value="all">All Floors</option>
               {floors.map(fl => <option key={fl} value={fl}>{fl}</option>)}
@@ -289,7 +298,7 @@ export default function AssetMonitoringPage({
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
             >
               <option value="all">All Statuses</option>
               <option value="OPERATIONAL">Operational</option>
@@ -302,7 +311,7 @@ export default function AssetMonitoringPage({
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
             >
               <option value="health_score">Sort: Health Score</option>
               <option value="failure_risk_pct">Sort: Failure Risk</option>
@@ -313,7 +322,7 @@ export default function AssetMonitoringPage({
 
             <button
               onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-              className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-100"
+              className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-100 cursor-pointer"
               title="Toggle sort direction"
             >
               <ArrowUpDown className="w-3.5 h-3.5" />
@@ -378,8 +387,8 @@ export default function AssetMonitoringPage({
                     </td>
                     <td className="py-3 px-4 text-right whitespace-nowrap">
                       <button
-                        onClick={() => onSelectAsset(asset.asset_id)}
-                        className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors"
+                        onClick={() => onSelectAsset && onSelectAsset(asset.asset_id)}
+                        className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer"
                       >
                         <Eye className="w-3.5 h-3.5" />
                         <span>Inspect</span>
